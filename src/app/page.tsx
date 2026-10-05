@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Bracket } from "@/components/Bracket";
-import { type Creds, drinkName, post, useGame, useHydrated, useStored } from "@/lib/client";
-import { VERDICT, ounces, share } from "@/lib/copy";
+import { type Creds, drinkName, post, useCountdown, useGame, useHydrated, useStored } from "@/lib/client";
+import { CODE_LENGTH } from "@/lib/game";
+import { DRUMROLL, SWITCH_COPY, VERDICT, ounces, share } from "@/lib/copy";
 import { buzz } from "@/lib/sfx";
-import type { Cup, CurrentView, View } from "@/lib/types";
+import type { Cup, CurrentView, SwitchKind, View } from "@/lib/types";
 
 type Me = NonNullable<View["me"]>;
 
@@ -18,6 +19,7 @@ export default function PlayPage() {
   const hydrated = useHydrated();
   const [creds, setCreds] = useStored<Creds>("npl:player");
   const { view, status, refresh } = useGame("player", { creds }, hydrated);
+  const remaining = useCountdown(view?.switchAt ?? 0);
 
   // Phones buzz whenever the host moves the game along.
   const lastPhase = useRef<string | null>(null);
@@ -44,7 +46,6 @@ export default function PlayPage() {
             setCreds(next);
             void refresh();
           }}
-          creds={creds}
         />
       </Shell>
     );
@@ -52,7 +53,11 @@ export default function PlayPage() {
 
   return (
     <Shell title={view.title} me={view.me} offline={status === "offline"}>
-      <Screen view={view} me={view.me} creds={creds} refresh={refresh} />
+      {remaining > 0 && view.switchKind ? (
+        <Countdown key={view.switchAt} kind={view.switchKind} remaining={remaining} me={view.me} />
+      ) : (
+        <Screen view={view} me={view.me} creds={creds} refresh={refresh} />
+      )}
     </Shell>
   );
 }
@@ -89,23 +94,109 @@ function Shell({
   );
 }
 
-function Join({ onJoined, creds }: { onJoined: (c: Creds) => void; creds: Creds | null }) {
+const BIG_INPUT =
+  "rounded-2xl border-2 border-bark bg-soil px-5 py-4 text-center font-bold outline-none placeholder:text-cream/30 focus:border-pulp";
+const BIG_BUTTON =
+  "rounded-2xl bg-pulp py-5 font-display text-2xl text-ink shadow-[0_6px_0_#a84a00] transition active:translate-y-1 active:shadow-none disabled:opacity-40";
+
+const digits = (raw: string) => raw.replace(/\D/g, "").slice(0, CODE_LENGTH);
+
+function Join({ onJoined }: { onJoined: (c: Creds) => void }) {
+  // The TV's QR code carries the game code, so scanning skips straight to the name.
+  const [code, setCode] = useState(() =>
+    digits(new URLSearchParams(window.location.search).get("code") ?? ""),
+  );
+  const [step, setStep] = useState<"code" | "name">(code.length === CODE_LENGTH ? "name" : "code");
   const [name, setName] = useState("");
+  const [taken, setTaken] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function send(body: Record<string, unknown>) {
     setBusy(true);
-    const res = await post<Creds>("/api/join", { name }, { creds });
+    setError(null);
+    const res = await post<Creds>("/api/join", { code, ...body });
     setBusy(false);
+    return res;
+  }
+
+  async function checkCode(e: React.FormEvent) {
+    e.preventDefault();
+    const res = await send({});
+    if (res.error) return setError(res.error);
+    buzz(40);
+    setStep("name");
+  }
+
+  async function join(reclaim: boolean) {
+    const res = await send({ name, reclaim });
+    if (res.status === 403) {
+      setCode("");
+      setStep("code");
+      return setError(res.error);
+    }
+    if (res.status === 409) return setTaken(true);
     if (res.error || !res.data) return setError(res.error ?? "Try again");
     buzz(80);
     onJoined(res.data);
   }
 
+  if (step === "code") {
+    return (
+      <form onSubmit={checkCode} className="my-auto flex flex-col gap-5">
+        <div className="text-center">
+          <p className="animate-wobble text-8xl">🎃</p>
+          <h1 className="mt-4 font-display text-4xl leading-none text-pulp">Game code</h1>
+          <p className="mt-2 text-cream/70">It&apos;s on the TV. Four digits.</p>
+        </div>
+        <input
+          value={code}
+          onChange={(e) => setCode(digits(e.target.value))}
+          inputMode="numeric"
+          autoComplete="off"
+          autoFocus
+          placeholder="0000"
+          className={`${BIG_INPUT} font-display text-5xl tracking-[0.3em]`}
+        />
+        {error && <p className="text-center text-blood">{error}</p>}
+        <button disabled={busy || code.length !== CODE_LENGTH} className={BIG_BUTTON}>
+          {busy ? "Checking…" : "Next"}
+        </button>
+      </form>
+    );
+  }
+
+  if (taken) {
+    return (
+      <div className="my-auto flex flex-col gap-4 text-center">
+        <p className="text-7xl">🤨</p>
+        <h1 className="font-display text-3xl leading-tight text-rind">{name.trim()} is already signed</h1>
+        <p className="text-cream/70">
+          Lost your spot? Take it back and pick up where you left off. Otherwise choose another name.
+        </p>
+        {error && <p className="text-blood">{error}</p>}
+        <button disabled={busy} onClick={() => join(true)} className={BIG_BUTTON}>
+          That&apos;s me
+        </button>
+        <button
+          disabled={busy}
+          onClick={() => setTaken(false)}
+          className="rounded-2xl border-2 border-bark bg-soil py-4 text-lg font-bold"
+        >
+          Different name
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <form onSubmit={submit} className="my-auto flex flex-col gap-5">
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        void join(false);
+      }}
+      className="my-auto flex flex-col gap-5"
+    >
       <div className="text-center">
         <p className="animate-wobble text-8xl">🎃</p>
         <h1 className="mt-4 font-display text-4xl leading-none text-pulp">Draft Day</h1>
@@ -118,13 +209,10 @@ function Join({ onJoined, creds }: { onJoined: (c: Creds) => void; creds: Creds 
         autoFocus
         autoComplete="off"
         placeholder="Your name"
-        className="rounded-2xl border-2 border-bark bg-soil px-5 py-4 text-center text-2xl font-bold outline-none placeholder:text-cream/30 focus:border-pulp"
+        className={`${BIG_INPUT} text-2xl`}
       />
       {error && <p className="text-center text-blood">{error}</p>}
-      <button
-        disabled={busy || !name.trim()}
-        className="rounded-2xl bg-pulp py-5 font-display text-2xl text-ink shadow-[0_6px_0_#a84a00] transition active:translate-y-1 active:shadow-none disabled:opacity-40"
-      >
+      <button disabled={busy || !name.trim()} className={BIG_BUTTON}>
         {busy ? "Signing…" : "I'm in"}
       </button>
     </form>
@@ -150,14 +238,36 @@ function Screen({
       return cur ? <OnDeck view={view} cur={cur} me={me} /> : null;
     case "voting":
       return cur ? <Vote key={cur.id} view={view} cur={cur} me={me} creds={creds} refresh={refresh} /> : null;
-    case "market":
     case "taste":
-      return cur ? <Waiting view={view} cur={cur} me={me} /> : null;
+      return cur ? <Verdict key={cur.id} cur={cur} me={me} /> : null;
     case "clearing":
       return cur ? <Clearing view={view} cur={cur} me={me} /> : null;
     case "champion":
       return <Champion view={view} me={me} />;
   }
+}
+
+function Countdown({ kind, remaining, me }: { kind: SwitchKind; remaining: number; me: Me }) {
+  const copy = SWITCH_COPY[kind];
+  const secs = Math.ceil(remaining / 1000);
+  useEffect(() => buzz(25), [secs]);
+  const heads =
+    kind === "open" && me.party === "market"
+      ? "👀 You're Market. Get ready to buy."
+      : kind === "open" && me.party === "taste"
+        ? "👅 You're Taste. Cups up."
+        : null;
+
+  return (
+    <Card className="my-auto text-center">
+      <p className="font-display text-2xl text-rind">{copy.title}</p>
+      <p key={secs} className="mt-2 animate-slam font-display text-9xl leading-none">
+        {secs}
+      </p>
+      <p className={`mt-4 text-cream/80 ${DRUMROLL.includes(kind) ? "animate-shake" : ""}`}>{copy.line}</p>
+      {heads && <p className="mt-3 text-lg font-bold">{heads}</p>}
+    </Card>
+  );
 }
 
 function Card({ className = "", children }: { className?: string; children: React.ReactNode }) {
@@ -354,34 +464,32 @@ function Vote({
   );
 }
 
-function Waiting({ view, cur, me }: { view: View; cur: CurrentView; me: Me }) {
-  const decided = view.phase === "taste" && cur.winnerCup;
+function Verdict({ cur, me }: { cur: CurrentView; me: Me }) {
+  const winner = cur.winnerCup;
+  const tie = cur.tie;
+
   return (
     <>
       <MatchHeader cur={cur} />
       <Card className="my-auto text-center">
-        {decided ? (
+        {winner ? (
           <>
             <p className="font-display text-lg text-cream/70">The tasters have spoken</p>
-            <p className={`mx-auto mt-4 grid size-32 animate-slam place-items-center rounded-[2rem] border-4 font-display text-8xl ${CUP_STYLE[cur.winnerCup!]}`}>
-              {cur.winnerCup}
+            <p className={`mx-auto mt-4 grid size-32 animate-slam place-items-center rounded-[2rem] border-4 font-display text-8xl ${CUP_STYLE[winner]}`}>
+              {winner}
             </p>
-            <h1 className="mt-4 font-display text-3xl">Cup {cur.winnerCup} advances</h1>
+            <h1 className="mt-4 font-display text-3xl">Cup {winner} advances</h1>
             {me.vote && (
               <p className="mt-2 text-lg font-semibold">
-                {me.vote === cur.winnerCup ? "You were on it. 😎" : "You were not on it. 😬"}
+                {me.vote === winner ? "You were on it. 😎" : "You were not on it. 😬"}
               </p>
             )}
           </>
         ) : (
           <>
             <p className="animate-shake text-7xl">🥁</p>
-            <h1 className="mt-4 font-display text-3xl text-rind">
-              {cur.tie ? "Dead heat!" : "Pencils down"}
-            </h1>
-            <p className="mt-2 text-cream/70">
-              {cur.tie ? "The host is breaking the tie." : "Eyes on the TV."}
-            </p>
+            <h1 className="mt-4 font-display text-3xl text-rind">{tie ? "Dead heat!" : "Pencils down"}</h1>
+            <p className="mt-2 text-cream/70">{tie ? "The host is breaking the tie." : "Eyes on the TV."}</p>
             {me.vote && (
               <p className="mt-4 text-lg">
                 You {me.party === "market" ? "bought" : "kept"}{" "}

@@ -4,14 +4,14 @@ import confetti from "canvas-confetti";
 import QRCode from "qrcode";
 import { useEffect, useRef, useState } from "react";
 import { Bracket } from "@/components/Bracket";
-import { drinkName, playerOf, useGame } from "@/lib/client";
-import { QUIPS, VERDICT, ounces, share } from "@/lib/copy";
+import { PinGate } from "@/components/PinGate";
+import { drinkName, playerOf, useCountdown, useGame, useHydrated, useStored } from "@/lib/client";
+import { DRUMROLL, SWITCH_COPY, VERDICT, ounces, share } from "@/lib/copy";
 import { tally } from "@/lib/game";
 import { enableSound, sfx } from "@/lib/sfx";
-import type { Cup, CurrentView, Stat, VerdictKind, View } from "@/lib/types";
+import type { Cup, CurrentView, Stat, SwitchKind, VerdictKind, View } from "@/lib/types";
 
 const CUPS: Cup[] = ["A", "B"];
-const SUSPENSE_MS = 3200;
 
 const CUP = {
   A: { fill: "bg-pulp text-ink", text: "text-pulp", border: "border-pulp", hex: "#ff7a18" },
@@ -22,7 +22,6 @@ const PHASE_LABEL: Record<View["phase"], string> = {
   lobby: "Draft Day",
   bracket: "On Deck",
   voting: "Market Open",
-  market: "Market Report",
   taste: "Taste Verdict",
   clearing: "Market Cleared",
   champion: "Champion",
@@ -39,9 +38,17 @@ function burst(colors: string[], count = 180) {
 }
 
 export default function TvPage() {
-  const { view } = useGame("tv");
+  const hydrated = useHydrated();
+  const [pin, setPin] = useStored<string>("npl:pin");
+  const { view, status } = useGame("tv", { pin }, hydrated && !!pin);
   const [sound, setSound] = useState(false);
+  const remaining = useCountdown(view?.switchAt ?? 0);
 
+  if (!hydrated) return null;
+  // The TV shows the game code, so only the host can put it up.
+  if (!pin || status === "denied") {
+    return <PinGate icon="📺" title="TV setup" wrong={!!pin && status === "denied"} onSubmit={setPin} />;
+  }
   if (!view) {
     return (
       <main className="grid h-dvh place-items-center">
@@ -54,7 +61,14 @@ export default function TvPage() {
   return (
     <main className="flex h-dvh w-screen flex-col overflow-hidden">
       <header className="flex shrink-0 items-center justify-between gap-[2vw] px-[2.5vw] py-[1.2vh]">
-        <span className="font-display text-[1.8vw] text-rind">🎃 {view.title}</span>
+        <span className="flex items-center gap-[1.5vw] font-display text-[1.8vw] text-rind">
+          🎃 {view.title}
+          {view.phase !== "lobby" && (
+            <span className="rounded-full border-[0.15vw] border-bark px-[1vw] py-[0.2vw] text-[1.1vw] tracking-widest text-cream/70">
+              Code {view.code}
+            </span>
+          )}
+        </span>
         {cur && (
           <span className="text-[1.3vw] font-semibold uppercase tracking-[0.2em] text-cream/60">
             Match {cur.number} of {cur.total} · {cur.roundName}
@@ -66,11 +80,13 @@ export default function TvPage() {
         </span>
       </header>
 
-      <section className="min-h-0 flex-1 px-[2.5vw] pb-[1.5vh]">
-        <Stage view={view} />
+      <section className="min-h-0 flex-1 px-[2.5vw] pb-[2.5vh]">
+        {remaining > 0 && view.switchKind ? (
+          <Countdown key={view.switchAt} kind={view.switchKind} remaining={remaining} />
+        ) : (
+          <Stage view={view} />
+        )}
       </section>
-
-      <Ticker view={view} />
 
       {!sound && (
         <button
@@ -80,7 +96,7 @@ export default function TvPage() {
             setSound(true);
             void document.documentElement.requestFullscreen?.().catch(() => {});
           }}
-          className="fixed bottom-[0.6vh] right-[1vw] z-10 animate-glow rounded-full bg-cream px-[1.2vw] py-[0.4vw] text-[1.1vw] font-bold text-ink"
+          className="fixed bottom-[1vh] left-1/2 z-10 -translate-x-1/2 animate-glow rounded-full bg-cream px-[1.2vw] py-[0.4vw] text-[1.1vw] font-bold text-ink"
         >
           🔊 Click for sound + fullscreen
         </button>
@@ -99,13 +115,37 @@ function Stage({ view }: { view: View }) {
       return <OnDeck key={cur.id} view={view} cur={cur} />;
     case "voting":
       return <Voting key={cur.id} view={view} cur={cur} />;
-    case "market":
-      return <MarketReveal key={cur.id} view={view} cur={cur} />;
     case "taste":
       return <TasteReveal key={cur.id} view={view} cur={cur} />;
     case "clearing":
       return <Clearing key={cur.id} view={view} cur={cur} />;
   }
+}
+
+function Countdown({ kind, remaining }: { kind: SwitchKind; remaining: number }) {
+  const copy = SWITCH_COPY[kind];
+  const secs = Math.ceil(remaining / 1000);
+  const drum = DRUMROLL.includes(kind);
+  const [length] = useState(remaining);
+  useEffect(() => {
+    if (drum) sfx.drumroll(length / 1000);
+  }, [drum, length]);
+  useEffect(() => {
+    if (!drum) sfx.tick();
+  }, [drum, secs]);
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-[2vh] text-center">
+      <p className="font-display text-[4.5vw] leading-none text-rind">{copy.title}</p>
+      <p key={secs} className={`animate-slam font-display text-[22vw] leading-none ${drum ? "text-cream" : "text-pulp"}`}>
+        {secs}
+      </p>
+      <p className={`text-[2.2vw] font-semibold text-cream/80 ${drum ? "animate-shake" : ""}`}>
+        {drum && "🥁 "}
+        {copy.line}
+      </p>
+    </div>
+  );
 }
 
 // ---------- shared bits ----------
@@ -174,38 +214,11 @@ function Leaderboard({ view, limit = 5 }: { view: View; limit?: number }) {
   );
 }
 
-function Ticker({ view }: { view: View }) {
-  const leader = view.stats[0];
-  const items = [...QUIPS];
-  if (leader && leader.points > 0) {
-    items.unshift(`${playerOf(view, leader.id).name} leads the Pumpkin Index at ${leader.points} pts.`);
-  }
-  const bagger = [...view.stats].sort((a, b) => b.bags - a.bags)[0];
-  if (bagger && bagger.bags > 0) {
-    items.splice(3, 0, `${playerOf(view, bagger.id).name} is holding ${bagger.bags} bag${bagger.bags > 1 ? "s" : ""}. Thoughts and prayers.`);
-  }
-  return (
-    <footer className="shrink-0 overflow-hidden border-t-[0.2vw] border-bark bg-ink py-[0.8vh]">
-      <div className="flex w-max animate-marquee whitespace-nowrap text-[1.3vw] font-semibold text-cream/70">
-        {[0, 1].map((copy) => (
-          <span key={copy} aria-hidden={copy === 1}>
-            {items.map((text) => (
-              <span key={text} className="mx-[2vw]">
-                <span className="mr-[2vw] text-pulp">🎃</span>
-                {text}
-              </span>
-            ))}
-          </span>
-        ))}
-      </div>
-    </footer>
-  );
-}
-
 // ---------- lobby ----------
 
 function Lobby({ view }: { view: View }) {
   const [join, setJoin] = useState<{ url: string; qr: string } | null>(null);
+  const code = view.code;
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -214,7 +227,8 @@ function Lobby({ view }: { view: View }) {
         const lan = await fetch("/api/lan").then((r) => r.json()).catch(() => null);
         if (lan?.url) url = lan.url;
       }
-      const qr = await QRCode.toDataURL(url, {
+      // Scanning carries the code along, so only typed-in URLs need it entered.
+      const qr = await QRCode.toDataURL(`${url}/?code=${code}`, {
         margin: 1,
         width: 640,
         color: { dark: "#120904", light: "#fff1dc" },
@@ -224,7 +238,7 @@ function Lobby({ view }: { view: View }) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [code]);
 
   const count = useRef(view.players.length);
   useEffect(() => {
@@ -250,11 +264,23 @@ function Lobby({ view }: { view: View }) {
       </div>
       <div className="flex flex-col items-center justify-center gap-[2vh]">
         <p className="font-display text-[2.6vw] text-rind">Scan to get drafted</p>
-        <div className="aspect-square w-[70%] overflow-hidden rounded-[2vw] bg-cream p-[1vw] shadow-[0_0_6vw_-1vw] shadow-pulp">
+        <div className="aspect-square w-[58%] overflow-hidden rounded-[2vw] bg-cream p-[1vw] shadow-[0_0_6vw_-1vw] shadow-pulp">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {join && <img src={join.qr} alt="QR code to join" className="size-full" />}
         </div>
-        <p className="text-[1.8vw] font-bold">{join?.url.replace(/^https?:\/\//, "")}</p>
+        <p className="text-[1.6vw] font-bold text-cream/80">
+          or go to {join?.url.replace(/^https?:\/\//, "")} and enter
+        </p>
+        <p className="flex gap-[0.8vw]">
+          {[...(code ?? "")].map((digit, i) => (
+            <span
+              key={i}
+              className="grid w-[5vw] place-items-center rounded-[1vw] bg-cream py-[0.4vw] font-display text-[4.2vw] leading-none text-ink"
+            >
+              {digit}
+            </span>
+          ))}
+        </p>
         <p className="text-[1.3vw] text-cream/60">
           {view.players.length} signed · {view.drinks.length} drinks in the field
         </p>
@@ -345,76 +371,18 @@ function Voting({ view, cur }: { view: View; cur: CurrentView }) {
   );
 }
 
-// ---------- market reveal ----------
-
-function MarketReveal({ view, cur }: { view: View; cur: CurrentView }) {
-  useEffect(() => sfx.kaching(), []);
-  const buys = cur.buys ?? {};
-  const asleep = cur.market.filter((id) => !buys[id]);
-  return (
-    <div className="flex h-full flex-col gap-[2vh]">
-      <h1 className="text-center font-display text-[4vw] leading-none text-rind">The market has spoken</h1>
-      <div className="grid min-h-0 flex-1 grid-cols-2 gap-[2vw]">
-        {CUPS.map((cup, c) => {
-          const buyers = cur.market.filter((id) => buys[id] === cup);
-          return (
-            <Panel key={cup} className={`flex flex-col items-center gap-[2vh] ${CUP[cup].border}`}>
-              <CupTile cup={cup} className="w-[9vw] text-[6.5vw]" />
-              <p className="font-display text-[2.6vw]">
-                {buyers.length} owner{buyers.length === 1 ? "" : "s"}
-              </p>
-              <div className="flex flex-wrap justify-center gap-[0.7vw]">
-                {buyers.map((id, i) => (
-                  <Chip key={id} view={view} id={id} cup={cup} delay={400 + (c * 3 + i) * 350} />
-                ))}
-              </div>
-              <p className={`mt-auto text-center font-display text-[2vw] ${buyers.length === 0 ? "animate-shake text-blood" : CUP[cup].text}`}>
-                {buyers.length === 0
-                  ? "💥 Nobody bought it. Crash incoming."
-                  : buyers.length === 1
-                    ? "One owner gets ALL OF IT"
-                    : `${share(buyers.length)} each`}
-              </p>
-            </Panel>
-          );
-        })}
-      </div>
-      {asleep.length > 0 && (
-        <p className="text-center text-[1.4vw] text-cream/60">
-          😴 Asleep at the bell: {asleep.map((id) => playerOf(view, id).name).join(", ")}
-        </p>
-      )}
-    </div>
-  );
-}
-
 // ---------- taste reveal ----------
 
 function TasteReveal({ view, cur }: { view: View; cur: CurrentView }) {
-  const [revealed, setRevealed] = useState(false);
-  useEffect(() => {
-    sfx.drumroll(SUSPENSE_MS / 1000);
-    const timer = setTimeout(() => setRevealed(true), SUSPENSE_MS);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const winner = revealed ? cur.winnerCup : null;
-  const tie = revealed && cur.tie;
+  // The countdown before this screen was the drumroll; land the result on arrival.
+  const winner = cur.winnerCup;
+  const tie = cur.tie;
   useEffect(() => {
     if (winner) {
       sfx.airhorn();
       burst([CUP[winner].hex, "#fff1dc", "#9be15d"]);
     } else if (tie) sfx.siren();
   }, [winner, tie]);
-
-  if (!revealed) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-[3vh]">
-        <p className="animate-shake text-[14vw] leading-none">🥁</p>
-        <h1 className="font-display text-[5vw] text-rind">The tasters have spoken…</h1>
-      </div>
-    );
-  }
 
   const picks = cur.picks ?? {};
   const count = tally(picks);

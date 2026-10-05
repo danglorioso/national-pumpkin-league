@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const param = new URL(req.url).searchParams.get("role");
   const role: Role = param === "admin" || param === "tv" ? param : "player";
-  if (role === "admin" && !isHost(req)) return fail("Wrong host PIN", 401);
+  // The TV shows the game code, so it needs the host PIN as much as the remote does.
+  if (role !== "player" && !isHost(req)) return fail("Wrong host PIN", 401);
 
   const store = getStore();
   const snap = await store.snapshot();

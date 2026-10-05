@@ -5,6 +5,38 @@ import type { Role, View } from "./types";
 
 const POLL_MS = 1000;
 
+// ---------- server clock ----------
+
+// Countdowns run on the server's clock so every screen hits zero together.
+// Each poll gives a sample; the one with the fastest round trip is the most
+// accurate, so keep that until it goes stale.
+let clock = { offset: 0, rtt: Infinity, at: 0 };
+
+function noteServerTime(serverNow: number, sent: number, received: number) {
+  const rtt = received - sent;
+  if (rtt <= clock.rtt || received - clock.at > 15_000) {
+    clock = { offset: serverNow + rtt / 2 - received, rtt, at: received };
+  }
+}
+
+export function serverNow(): number {
+  return Date.now() + clock.offset;
+}
+
+/** Milliseconds until server time `at`; re-renders ~10×/s until it reaches zero. */
+export function useCountdown(at: number): number {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (at <= serverNow()) return;
+    const timer = setInterval(() => {
+      setTick((t) => t + 1);
+      if (at <= serverNow()) clearInterval(timer);
+    }, 100);
+    return () => clearInterval(timer);
+  }, [at]);
+  return Math.max(0, at - serverNow());
+}
+
 export type Creds = { id: string; secret: string };
 
 type Auth = { creds?: Creds | null; pin?: string | null };
@@ -22,7 +54,7 @@ export async function post<T = unknown>(
   path: string,
   body: unknown,
   auth: Auth = {},
-): Promise<{ data: T | null; error: string | null }> {
+): Promise<{ data: T | null; error: string | null; status: number }> {
   try {
     const res = await fetch(path, {
       method: "POST",
@@ -30,10 +62,12 @@ export async function post<T = unknown>(
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => null);
-    if (!res.ok) return { data: null, error: data?.error ?? `Request failed (${res.status})` };
-    return { data, error: null };
+    if (!res.ok) {
+      return { data: null, error: data?.error ?? `Request failed (${res.status})`, status: res.status };
+    }
+    return { data, error: null, status: res.status };
   } catch {
-    return { data: null, error: "Can't reach the league office" };
+    return { data: null, error: "Can't reach the league office", status: 0 };
   }
 }
 
@@ -49,6 +83,7 @@ export function useGame(role: Role, auth: Auth = {}, enabled = true) {
   const refresh = useCallback(async () => {
     const mine = ++seq.current;
     try {
+      const sent = Date.now();
       const res = await fetch(`/api/state?role=${role}`, {
         cache: "no-store",
         headers: headers({ creds: id && secret ? { id, secret } : null, pin }),
@@ -57,7 +92,9 @@ export function useGame(role: Role, auth: Auth = {}, enabled = true) {
       applied.current = mine;
       if (res.status === 401) return setStatus("denied");
       if (!res.ok) return setStatus("offline");
-      setView(await res.json());
+      const next: View = await res.json();
+      noteServerTime(next.now, sent, Date.now());
+      setView(next);
       setStatus("ok");
     } catch {
       setStatus("offline");

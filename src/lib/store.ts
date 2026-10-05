@@ -66,19 +66,25 @@ class RedisStore implements Store {
 
   async snapshot(fresh = false): Promise<Snapshot> {
     if (!fresh && this.cache && Date.now() - this.cache.at < CACHE_MS) return this.cache.snap;
-    const [state, players, votes] = await this.redis
+    const [stored, players, votes] = await this.redis
       .pipeline()
       .get<GameState>(KEY.state)
       .hgetall<Record<string, Player>>(KEY.players)
       .hgetall<Record<string, Cup>>(KEY.votes)
       .exec();
     const snap: Snapshot = {
-      state: state ?? newGame(),
+      state: stored ?? (await this.firstGame()),
       players: Object.values(players ?? {}),
       votes: votes ?? {},
     };
     this.cache = { at: Date.now(), snap };
     return snap;
+  }
+  /** Saves the very first game so every instance agrees on its code. */
+  private async firstGame(): Promise<GameState> {
+    const fresh = newGame();
+    const created = await this.redis.set(KEY.state, fresh, { nx: true });
+    return created ? fresh : ((await this.redis.get<GameState>(KEY.state)) ?? fresh);
   }
   // Players and ballots live in hashes so concurrent phones never overwrite each
   // other; only the host writes the state blob.

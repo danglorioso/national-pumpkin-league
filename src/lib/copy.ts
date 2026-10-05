@@ -1,4 +1,19 @@
-import type { VerdictKind } from "./types";
+import type { SwitchKind, VerdictKind } from "./types";
+
+/** What every screen says while counting down into the next phase. */
+export const SWITCH_COPY: Record<SwitchKind, { title: string; line: string }> = {
+  start: { title: "Kickoff", line: "The bracket drops in" },
+  open: { title: "Voting opens", line: "Market: eyes on the cans. Tasters: cups in hand." },
+  close: { title: "Pencils down", line: "The tasters have spoken…" },
+  reopen: { title: "Voting reopens", line: "Second chance. Don't waste it." },
+  tiebreak: { title: "Breaking the tie", line: "The commissioner has decided…" },
+  clear: { title: "Unmasking", line: "Who bought what. Who drinks what." },
+  next: { title: "Next matchup", line: "Refill. Regroup. Re-pour." },
+  final: { title: "Crowning the champion", line: "One pumpkin to rule them all" },
+};
+
+/** Countdowns that build suspense with a drumroll instead of beeps. */
+export const DRUMROLL: SwitchKind[] = ["close", "tiebreak", "final"];
 
 export const VERDICT: Record<VerdictKind, { title: string; line: string; tone: "good" | "bad" | "meh" }> = {
   genius: {
@@ -55,18 +70,3 @@ export function ounces(oz: number | null): string {
   if (oz === null) return "";
   return `≈ ${oz >= 10 ? Math.round(oz) : Math.round(oz * 2) / 2} oz`;
 }
-
-export const QUIPS = [
-  "Half look. Half taste. Everybody drinks.",
-  "Fewer owners = bigger share.",
-  "Nobody owns it = everybody owns it.",
-  "Past pumpkin performance does not guarantee future results.",
-  "The market can stay irrational longer than you can stay sober.",
-  "Buy the rumor. Drink the news.",
-  "This league is not regulated by the SEC, the FDA, or anyone's mother.",
-  "A fancy label is not a personality.",
-  "Be greedy when others are fearful of the nutmeg.",
-  "Diversification is impossible. You get one cup.",
-  "Cinnamon is not a substitute for flavor.",
-  "Remember: somebody has to finish it.",
-];

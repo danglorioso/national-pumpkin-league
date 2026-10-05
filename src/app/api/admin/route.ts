@@ -6,13 +6,14 @@ import {
   newGame,
   restage,
   settle,
+  SWITCH_MS,
   shuffled,
   stageNext,
   tally,
 } from "@/lib/game";
 import { fail, isHost, json } from "@/lib/server";
 import { getStore } from "@/lib/store";
-import type { Drink, Phase } from "@/lib/types";
+import type { Drink, Phase, SwitchKind } from "@/lib/types";
 
 type Body = {
   action?: string;
@@ -30,11 +31,13 @@ const NEXT: Record<Phase, string | null> = {
   lobby: "start",
   bracket: "open",
   voting: "close",
-  market: "revealTaste",
   taste: "clear",
   clearing: "next",
   champion: null,
 };
+
+/** Host actions that change what every screen shows, and so get a countdown. */
+const SWITCHES = new Set(["start", "open", "close", "reopen", "tiebreak", "clear", "next"]);
 
 function parseDrinks(input: unknown): Drink[] {
   if (!Array.isArray(input)) return [];
@@ -63,6 +66,11 @@ export async function POST(req: Request) {
   const { players } = snap;
   const m = currentMatchup(state);
   const action = body.action === "advance" ? NEXT[state.phase] : body.action;
+  const switching = !!action && SWITCHES.has(action);
+  // One switch at a time: a double-tap can't skip a screen mid-countdown.
+  if (switching && Date.now() < (state.switchAt ?? 0)) {
+    return fail("Hold on, screens are still switching", 409);
+  }
 
   switch (action) {
     case "setup": {
@@ -101,24 +109,21 @@ export async function POST(req: Request) {
       break;
     }
     case "close": {
-      if (state.phase !== "voting" || !m) return fail("Voting isn't open");
+      if (state.phase !== "voting" || !m?.played) return fail("Voting isn't open");
       closeVoting(m, liveVotes(snap, m));
-      state.phase = "market";
-      break;
-    }
-    case "reopen": {
-      if (state.phase !== "market") return fail("Too late to reopen");
-      state.phase = "voting";
-      break;
-    }
-    case "revealTaste": {
-      if (state.phase !== "market" || !m?.played) return fail("Reveal the market first");
       const t = tally(m.played.picks);
       if (t.A !== t.B) {
         m.played.winnerCup = t.A > t.B ? "A" : "B";
         m.played.decidedBy = "taste";
       }
       state.phase = "taste";
+      break;
+    }
+    case "reopen": {
+      if (state.phase !== "taste" || !m?.played) return fail("Too late to reopen");
+      m.played.winnerCup = null;
+      m.played.decidedBy = null;
+      state.phase = "voting";
       break;
     }
     case "tiebreak": {
@@ -134,7 +139,7 @@ export async function POST(req: Request) {
       break;
     }
     case "clear": {
-      if (state.phase !== "taste" || !m?.played) return fail("Reveal the taste vote first");
+      if (state.phase !== "taste" || !m?.played) return fail("Close voting first");
       if (!m.played.winnerCup) return fail("It's a tie. Break it first");
       settle(state, m);
       state.phase = "clearing";
@@ -151,16 +156,16 @@ export async function POST(req: Request) {
       break;
     }
     case "reset": {
+      // Drinks and settings always carry over. A new game also empties the
+      // roster and issues a new code; a restart keeps both.
       const fresh = newGame();
-      if (body.wipe === true) {
-        await store.clearPlayers();
-      } else {
-        fresh.title = state.title;
-        fresh.poolStd = state.poolStd;
-        fresh.drinks = [...state.drinks]
-          .sort((a, b) => a.id.localeCompare(b.id, "en", { numeric: true }))
-          .map((d, i) => ({ ...d, seed: i + 1 }));
-      }
+      if (body.wipe === true) await store.clearPlayers();
+      else fresh.code = state.code;
+      fresh.title = state.title;
+      fresh.poolStd = state.poolStd;
+      fresh.drinks = [...state.drinks]
+        .sort((x, y) => x.id.localeCompare(y.id, "en", { numeric: true }))
+        .map((d, i) => ({ ...d, seed: i + 1 }));
       fresh.version = state.version;
       Object.assign(state, fresh);
       await store.clearVotes();
@@ -170,6 +175,10 @@ export async function POST(req: Request) {
       return fail(action ? `Unknown action: ${action}` : "Nothing left to advance");
   }
 
+  if (switching) {
+    state.switchAt = Date.now() + SWITCH_MS;
+    state.switchKind = (action === "next" && state.phase === "champion" ? "final" : action) as SwitchKind;
+  }
   state.version++;
   await store.setState(state);
   return json({ ok: true, phase: state.phase });

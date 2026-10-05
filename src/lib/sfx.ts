@@ -52,6 +52,10 @@ export const sfx = {
     tone(660, 0, 0.08, { gain: 0.08 });
     tone(990, 0.07, 0.12, { gain: 0.08 });
   },
+  /** One beat of a countdown. */
+  tick() {
+    tone(880, 0, 0.12, { type: "triangle", gain: 0.14 });
+  },
   /** Opening bell: the market is open. */
   bell() {
     for (let i = 0; i < 3; i++) {

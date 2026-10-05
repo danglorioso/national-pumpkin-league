@@ -16,6 +16,7 @@ export async function POST(req: Request) {
   if (snap.state.phase !== "voting" || !m?.played || m.id !== body.matchupId) {
     return fail("Voting is closed", 409);
   }
+  if (Date.now() < (snap.state.switchAt ?? 0)) return fail("Voting opens in a moment", 409);
   if (!m.played.market.includes(me.id) && !m.played.taste.includes(me.id)) {
     return fail("You're sitting this one out", 403);
   }

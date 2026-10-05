@@ -18,14 +18,24 @@ smaller pour than a share of a 4.5% one.
 
 ## Screens
 
-| Path     | Who                 | What                                              |
-| -------- | ------------------- | ------------------------------------------------- |
-| `/`      | Players (phones)    | Join, see your party, buy or pick, get your tab   |
-| `/tv`    | The room            | QR code, bracket, live lock-ins, reveals, champion |
-| `/admin` | Host (PIN required) | Enter drinks, advance each step, break ties       |
+| Path     | Who                 | What                                                    |
+| -------- | ------------------- | ------------------------------------------------------- |
+| `/`      | Players (phones)    | Enter the game code, join, buy or pick, get your tab    |
+| `/tv`    | The room (host PIN) | Game code + QR, bracket, live lock-ins, reveals, champion |
+| `/admin` | Host (host PIN)     | Enter drinks, advance each step, break ties             |
 
-A matchup moves through: on deck → voting → market reveal → taste verdict →
-market cleared. The big button on `/admin` always does the next step.
+A matchup moves through: on deck → voting → taste verdict → market cleared.
+The big button on `/admin` always does the next step.
+
+## Joining
+
+Every game has a random 4-digit code, shown on the TV. Phones enter it before
+they can pick a name; the TV's QR code carries it, so scanning skips that step.
+"New game" on `/admin` signs everyone out and issues a new code.
+
+If a phone loses its login, entering the code and the same name again offers to
+take that seat back, with points and party intact. The phone that held the seat
+before is signed out.
 
 ## Running it
 
@@ -42,8 +52,8 @@ address automatically.
 
 Copy `.env.example` to `.env.local`.
 
-- `HOST_PIN` protects `/admin`. Defaults to `1031` if unset, so set it before
-  putting this on the internet.
+- `HOST_PIN` protects `/admin` and `/tv` (the TV shows the game code). Defaults
+  to `1031` if unset, so set it before putting this on the internet.
 - `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (or the
   `KV_REST_API_URL` / `KV_REST_API_TOKEN` pair that Vercel's Upstash
   integration provides) turn on the Redis store.

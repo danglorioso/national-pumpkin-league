@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { drinkName, playerOf, post, useGame, useHydrated, useStored } from "@/lib/client";
+import { PinGate } from "@/components/PinGate";
+import { drinkName, playerOf, post, useCountdown, useGame, useHydrated, useStored } from "@/lib/client";
 import type { Cup, CurrentView, Drink, View } from "@/lib/types";
 
 type Send = (action: string, extra?: Record<string, unknown>) => Promise<boolean>;
@@ -29,7 +30,9 @@ export default function AdminPage() {
 
   if (!hydrated) return null;
   if (!pin || status === "denied") {
-    return <PinGate wrong={!!pin && status === "denied"} onSubmit={setPin} />;
+    return (
+      <PinGate icon="🧑‍⚖️" title="Commissioner's office" wrong={!!pin && status === "denied"} onSubmit={setPin} />
+    );
   }
   if (!view) return <main className="m-auto text-6xl">🎃</main>;
 
@@ -42,6 +45,11 @@ export default function AdminPage() {
           <Link href="/" target="_blank">Player</Link>
         </nav>
       </header>
+
+      <p className="flex items-center justify-between rounded-2xl border-2 border-bark bg-soil px-4 py-2 font-semibold">
+        <span className="text-cream/70">Game code</span>
+        <span className="font-display text-2xl tracking-[0.2em] text-rind">{view.code}</span>
+      </p>
 
       {!view.persistent && (
         <p className="rounded-xl border border-rind/40 bg-rind/10 px-3 py-2 text-sm text-rind">
@@ -59,33 +67,6 @@ export default function AdminPage() {
       <Roster view={view} send={send} />
       <Danger send={send} onLogout={() => setPin(null)} />
     </main>
-  );
-}
-
-function PinGate({ wrong, onSubmit }: { wrong: boolean; onSubmit: (pin: string) => void }) {
-  const [value, setValue] = useState("");
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (value.trim()) onSubmit(value.trim());
-      }}
-      className="m-auto flex w-full max-w-xs flex-col gap-4 px-4 text-center"
-    >
-      <p className="text-6xl">🧑‍⚖️</p>
-      <h1 className="font-display text-2xl text-rind">Commissioner&apos;s office</h1>
-      <input
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        type="password"
-        inputMode="numeric"
-        autoFocus
-        placeholder="Host PIN"
-        className="rounded-2xl border-2 border-bark bg-soil px-4 py-3 text-center text-2xl font-bold outline-none focus:border-pulp"
-      />
-      {wrong && <p className="text-blood">Wrong PIN.</p>}
-      <button className={`${BTN} bg-pulp text-ink`}>Enter</button>
-    </form>
   );
 }
 
@@ -186,9 +167,7 @@ function advanceLabel(view: View, cur: CurrentView | null): string | null {
     case "bracket":
       return "🔔 Open voting";
     case "voting":
-      return `Close voting (${cur?.locked.length ?? 0}/${(cur?.market.length ?? 0) + (cur?.taste.length ?? 0)} in)`;
-    case "market":
-      return "🥁 Reveal taste verdict";
+      return `🥁 Close voting (${cur?.locked.length ?? 0}/${(cur?.market.length ?? 0) + (cur?.taste.length ?? 0)} in)`;
     case "taste":
       return cur?.tie ? "Break the tie first ↓" : "💰 Unmask cups + clear market";
     case "clearing":
@@ -200,9 +179,8 @@ function advanceLabel(view: View, cur: CurrentView | null): string | null {
 
 const HINT: Partial<Record<View["phase"], string>> = {
   bracket: "Market pours the cups now (their phones say which is A and B). Open voting when cups are down.",
-  voting: "Market buys, tasters pick. Close when everyone's in.",
-  market: "TV shows who bought what. Next: drumroll, then the taste verdict.",
-  taste: "TV shows the winning cup. Next: reveal which drink was which and who drinks what.",
+  voting: "Market buys, tasters pick. Closing starts a 3-second drumroll, then the taste verdict.",
+  taste: "TV shows the winning cup. Next: reveal which drink was which, who bought what, and who drinks what.",
   clearing: "Everybody finishes their share. Then move on.",
   champion: "That's the season. Restart below to run it back.",
 };
@@ -211,6 +189,9 @@ function Remote({ view, send, busy }: { view: View; send: Send; busy: boolean })
   const cur = view.current;
   const label = advanceLabel(view, cur);
   const [spoil, setSpoil] = useState(false);
+  // Screens are mid-countdown; the server refuses the next switch until they land.
+  const remaining = useCountdown(view.switchAt);
+  const hold = busy || remaining > 0;
 
   return (
     <section className="flex flex-col gap-3 rounded-3xl border-2 border-bark bg-soil p-4">
@@ -227,10 +208,15 @@ function Remote({ view, send, busy }: { view: View; send: Send; busy: boolean })
         <h2 className="font-display text-xl text-pulp">🏆 {drinkName(view, view.champion)}</h2>
       )}
       <p className="text-sm text-cream/70">{HINT[view.phase]}</p>
+      {remaining > 0 && (
+        <p className="rounded-xl bg-rind/15 px-3 py-2 text-center font-bold text-rind">
+          ⏱ Screens switch in {Math.ceil(remaining / 1000)}…
+        </p>
+      )}
 
       {label && (
         <button
-          disabled={busy || !!cur?.tie}
+          disabled={hold || !!cur?.tie}
           onClick={() => send("advance")}
           className={`${BTN} bg-pulp py-6 font-display text-xl text-ink shadow-[0_6px_0_#a84a00] active:shadow-none`}
         >
@@ -241,23 +227,23 @@ function Remote({ view, send, busy }: { view: View; send: Send; busy: boolean })
       {cur?.tie && (
         <div className="grid grid-cols-3 gap-2">
           {(["A", "B"] as Cup[]).map((cup) => (
-            <button key={cup} disabled={busy} onClick={() => send("tiebreak", { cup })} className={GHOST}>
+            <button key={cup} disabled={hold} onClick={() => send("tiebreak", { cup })} className={GHOST}>
               {cup} wins
             </button>
           ))}
-          <button disabled={busy} onClick={() => send("tiebreak", { cup: "coin" })} className={GHOST}>
+          <button disabled={hold} onClick={() => send("tiebreak", { cup: "coin" })} className={GHOST}>
             🪙 Flip
           </button>
         </div>
       )}
       {view.phase === "bracket" && (
-        <button disabled={busy} onClick={() => send("reshuffle")} className={GHOST}>
+        <button disabled={hold} onClick={() => send("reshuffle")} className={GHOST}>
           🔀 Reshuffle parties + cups
         </button>
       )}
-      {view.phase === "market" && (
-        <button disabled={busy} onClick={() => send("reopen")} className={GHOST}>
-          ↩ Reopen voting
+      {view.phase === "taste" && (
+        <button disabled={hold} onClick={() => send("reopen")} className={GHOST}>
+          ↩ Closed too early? Reopen voting
         </button>
       )}
 
@@ -320,16 +306,16 @@ function Danger({ send, onLogout }: { send: Send; onLogout: () => void }) {
     <section className="flex flex-col gap-2 rounded-3xl border-2 border-blood/40 p-4">
       <h2 className="font-display text-lg text-blood">Danger zone</h2>
       <button
-        onClick={() => confirm("Restart the tournament? Bracket and results are erased; players and drinks stay.") && send("reset")}
+        onClick={() => confirm("Restart the tournament? Bracket and results are erased. Players, drinks and the game code stay.") && send("reset")}
         className={GHOST}
       >
-        Restart tournament
+        Restart tournament (same players)
       </button>
       <button
-        onClick={() => confirm("Wipe EVERYTHING, including players and drinks?") && send("reset", { wipe: true })}
+        onClick={() => confirm("Start a new game? Everyone is signed out and a new game code is issued. Drinks stay.") && send("reset", { wipe: true })}
         className={GHOST}
       >
-        Wipe everything
+        New game (new code)
       </button>
       <button onClick={onLogout} className="pt-1 text-sm text-cream/50 underline">
         Forget PIN on this device

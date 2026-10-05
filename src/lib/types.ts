@@ -6,12 +6,14 @@ export const PHASES = [
   "lobby", // players join, host enters drinks
   "bracket", // bracket on TV, next matchup on deck, parties assigned
   "voting", // market buys, tasters pick
-  "market", // market split revealed
   "taste", // taste vote revealed, winner cup known
-  "clearing", // cups unmasked, pours assigned
+  "clearing", // cups unmasked, who bought what, pours assigned
   "champion",
 ] as const;
 export type Phase = (typeof PHASES)[number];
+
+/** Which host action kicked off the countdown every screen is showing. */
+export type SwitchKind = "start" | "open" | "close" | "reopen" | "tiebreak" | "clear" | "next" | "final";
 
 export type Drink = { id: string; name: string; abv: number | null; seed: number };
 
@@ -48,6 +50,8 @@ export type Matchup = {
 
 export type GameState = {
   version: number;
+  /** Shown on the TV; phones must enter it to join. New one per game. */
+  code: string;
   phase: Phase;
   title: string;
   drinks: Drink[];
@@ -59,6 +63,12 @@ export type GameState = {
   /** Standard drinks in each leftover pool, used to size pours by ABV. */
   poolStd: number;
   seed: number;
+  /**
+   * Server time (ms) when the current phase goes live on every screen. The
+   * state changes the instant the host taps; screens count down to this.
+   */
+  switchAt: number;
+  switchKind: SwitchKind | null;
 };
 
 export type Snapshot = {
@@ -161,4 +171,10 @@ export type View = {
   poolStd: number;
   /** False when running on the in-memory dev store. */
   persistent: boolean;
+  /** Game code, only sent to the TV and the host. */
+  code: string | null;
+  /** Server clock when this view was built, for syncing countdowns. */
+  now: number;
+  switchAt: number;
+  switchKind: SwitchKind | null;
 };

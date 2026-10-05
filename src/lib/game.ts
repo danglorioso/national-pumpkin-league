@@ -29,9 +29,19 @@ const AVATARS = [
 const ETHANOL_OZ_PER_STD = 0.6;
 const MAX_POOL_OZ = 12;
 
+export const CODE_LENGTH = 4;
+
+/** Every phase change counts down this long, so all screens flip at the same moment. */
+export const SWITCH_MS = 3000;
+
+export function makeCode(): string {
+  return String(Math.floor(Math.random() * 10 ** CODE_LENGTH)).padStart(CODE_LENGTH, "0");
+}
+
 export function newGame(): GameState {
   return {
     version: 1,
+    code: makeCode(),
     phase: "lobby",
     title: "National Pumpkin League",
     drinks: [],
@@ -41,6 +51,8 @@ export function newGame(): GameState {
     rotation: 0,
     poolStd: 1,
     seed: Math.floor(Math.random() * 1e9),
+    switchAt: 0,
+    switchKind: null,
   };
 }
 
@@ -354,7 +366,7 @@ function viewCurrent(
     taste: p.taste,
     locked: Object.keys(ballots).filter((id) => roster.has(id)),
     cups: unmasked ? { A: cupDrink(m, "A"), B: cupDrink(m, "B") } : null,
-    buys: at >= rank("market") ? p.buys : null,
+    buys: at >= rank("clearing") ? p.buys : null,
     picks: at >= rank("taste") ? p.picks : null,
     winnerCup: at >= rank("taste") ? p.winnerCup : null,
     tie: state.phase === "taste" && !p.winnerCup,
@@ -373,6 +385,28 @@ export function buildView(
   const players = [...snap.players].sort((a, b) => a.joinedAt - b.joinedAt);
   const m = currentMatchup(state);
   const me = role === "player" ? (players.find((p) => p.id === meId) ?? null) : null;
+  // A phone that hasn't joined only learns that a game exists.
+  if (role === "player" && !me) {
+    return {
+      version: state.version,
+      phase: state.phase,
+      title: state.title,
+      players: [],
+      drinks: [],
+      rounds: [],
+      current: null,
+      me: null,
+      stats: [],
+      champion: null,
+      poolStd: state.poolStd,
+      persistent,
+      code: null,
+      now: Date.now(),
+      switchAt: state.switchAt ?? 0,
+      switchKind: state.switchKind ?? null,
+    };
+  }
+
   const live = state.phase !== "lobby" && state.phase !== "champion";
   const current = m && live ? viewCurrent(snap, m, role, me?.id ?? null) : null;
 
@@ -427,5 +461,9 @@ export function buildView(
     champion: state.phase === "champion" ? (final?.winner ?? null) : null,
     poolStd: state.poolStd,
     persistent,
+    code: role === "player" ? null : state.code,
+    now: Date.now(),
+    switchAt: state.switchAt ?? 0,
+    switchKind: state.switchKind ?? null,
   };
 }
