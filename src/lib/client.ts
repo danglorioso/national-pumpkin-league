@@ -32,7 +32,12 @@ export function useCountdown(at: number): number {
       setTick((t) => t + 1);
       if (at <= serverNow()) clearInterval(timer);
     }, 100);
-    return () => clearInterval(timer);
+    // Land the final flip on the exact millisecond rather than the next 100ms tick.
+    const end = setTimeout(() => setTick((t) => t + 1), at - serverNow());
+    return () => {
+      clearInterval(timer);
+      clearTimeout(end);
+    };
   }, [at]);
   return Math.max(0, at - serverNow());
 }

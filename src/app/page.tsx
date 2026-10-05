@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Bracket } from "@/components/Bracket";
 import { type Creds, drinkName, post, useCountdown, useGame, useHydrated, useStored } from "@/lib/client";
-import { CODE_LENGTH } from "@/lib/game";
+import { CODE_LENGTH, countdownSecs } from "@/lib/game";
 import { DRUMROLL, SWITCH_COPY, VERDICT, ounces, share } from "@/lib/copy";
 import { buzz } from "@/lib/sfx";
 import type { Cup, CurrentView, SwitchKind, View } from "@/lib/types";
@@ -249,7 +249,7 @@ function Screen({
 
 function Countdown({ kind, remaining, me }: { kind: SwitchKind; remaining: number; me: Me }) {
   const copy = SWITCH_COPY[kind];
-  const secs = Math.ceil(remaining / 1000);
+  const secs = countdownSecs(remaining);
   useEffect(() => buzz(25), [secs]);
   const heads =
     kind === "open" && me.party === "market"

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { PinGate } from "@/components/PinGate";
 import { drinkName, playerOf, post, useCountdown, useGame, useHydrated, useStored } from "@/lib/client";
+import { countdownSecs } from "@/lib/game";
 import type { Cup, CurrentView, Drink, View } from "@/lib/types";
 
 type Send = (action: string, extra?: Record<string, unknown>) => Promise<boolean>;
@@ -179,7 +180,7 @@ function advanceLabel(view: View, cur: CurrentView | null): string | null {
 
 const HINT: Partial<Record<View["phase"], string>> = {
   bracket: "Market pours the cups now (their phones say which is A and B). Open voting when cups are down.",
-  voting: "Market buys, tasters pick. Closing starts a 3-second drumroll, then the taste verdict.",
+  voting: "Market buys, tasters pick. Closing starts a drumroll countdown, then the taste verdict.",
   taste: "TV shows the winning cup. Next: reveal which drink was which, who bought what, and who drinks what.",
   clearing: "Everybody finishes their share. Then move on.",
   champion: "That's the season. Restart below to run it back.",
@@ -210,7 +211,7 @@ function Remote({ view, send, busy }: { view: View; send: Send; busy: boolean })
       <p className="text-sm text-cream/70">{HINT[view.phase]}</p>
       {remaining > 0 && (
         <p className="rounded-xl bg-rind/15 px-3 py-2 text-center font-bold text-rind">
-          ⏱ Screens switch in {Math.ceil(remaining / 1000)}…
+          ⏱ Screens switch in {countdownSecs(remaining)}…
         </p>
       )}
 

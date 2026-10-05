@@ -27,6 +27,11 @@ smaller pour than a share of a 4.5% one.
 A matchup moves through: on deck → voting → taste verdict → market cleared.
 The big button on `/admin` always does the next step.
 
+Every switch is timed by the server: the host taps, and four seconds later every
+screen flips at the same moment, after a synced 3-2-1. Votes only count once
+voting is actually open, and the host can't fire the next switch until the
+current one has landed, so a double-tap never skips a screen.
+
 ## Joining
 
 Every game has a random 4-digit code, shown on the TV. Phones enter it before

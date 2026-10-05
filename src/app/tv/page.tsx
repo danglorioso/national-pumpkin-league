@@ -7,7 +7,7 @@ import { Bracket } from "@/components/Bracket";
 import { PinGate } from "@/components/PinGate";
 import { drinkName, playerOf, useCountdown, useGame, useHydrated, useStored } from "@/lib/client";
 import { DRUMROLL, SWITCH_COPY, VERDICT, ounces, share } from "@/lib/copy";
-import { tally } from "@/lib/game";
+import { countdownSecs, tally } from "@/lib/game";
 import { enableSound, sfx } from "@/lib/sfx";
 import type { Cup, CurrentView, Stat, SwitchKind, VerdictKind, View } from "@/lib/types";
 
@@ -124,7 +124,7 @@ function Stage({ view }: { view: View }) {
 
 function Countdown({ kind, remaining }: { kind: SwitchKind; remaining: number }) {
   const copy = SWITCH_COPY[kind];
-  const secs = Math.ceil(remaining / 1000);
+  const secs = countdownSecs(remaining);
   const drum = DRUMROLL.includes(kind);
   const [length] = useState(remaining);
   useEffect(() => {

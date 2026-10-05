@@ -31,8 +31,17 @@ const MAX_POOL_OZ = 12;
 
 export const CODE_LENGTH = 4;
 
-/** Every phase change counts down this long, so all screens flip at the same moment. */
-export const SWITCH_MS = 3000;
+/**
+ * Every phase change counts down this long, so all screens flip at the same
+ * moment. Phones poll once a second, so the extra second over the visible 3-2-1
+ * lets every screen catch the countdown before the 3 is gone.
+ */
+export const SWITCH_MS = 4000;
+
+/** The number a countdown shows: 3, 2, 1, ticking on the same beat everywhere. */
+export function countdownSecs(remainingMs: number): number {
+  return Math.min(3, Math.ceil(remainingMs / 1000));
+}
 
 export function makeCode(): string {
   return String(Math.floor(Math.random() * 10 ** CODE_LENGTH)).padStart(CODE_LENGTH, "0");
