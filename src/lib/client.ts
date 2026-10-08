@@ -42,6 +42,9 @@ export function useCountdown(at: number): number {
   return Math.max(0, at - serverNow());
 }
 
+/** Newest game version this screen has seen; the server never answers with older. */
+let seenVersion = 0;
+
 export type Creds = { id: string; secret: string };
 
 type Auth = { creds?: Creds | null; pin?: string | null };
@@ -67,6 +70,7 @@ export async function post<T = unknown>(
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => null);
+    if (typeof data?.version === "number") seenVersion = Math.max(seenVersion, data.version);
     if (!res.ok) {
       return { data: null, error: data?.error ?? `Request failed (${res.status})`, status: res.status };
     }
@@ -89,7 +93,7 @@ export function useGame(role: Role, auth: Auth = {}, enabled = true) {
     const mine = ++seq.current;
     try {
       const sent = Date.now();
-      const res = await fetch(`/api/state?role=${role}`, {
+      const res = await fetch(`/api/state?role=${role}&v=${seenVersion}`, {
         cache: "no-store",
         headers: headers({ creds: id && secret ? { id, secret } : null, pin }),
       });
@@ -99,6 +103,7 @@ export function useGame(role: Role, auth: Auth = {}, enabled = true) {
       if (!res.ok) return setStatus("offline");
       const next: View = await res.json();
       noteServerTime(next.now, sent, Date.now());
+      seenVersion = next.version;
       setView(next);
       setStatus("ok");
     } catch {

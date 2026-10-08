@@ -181,5 +181,5 @@ export async function POST(req: Request) {
   }
   state.version++;
   await store.setState(state);
-  return json({ ok: true, phase: state.phase });
+  return json({ ok: true, phase: state.phase, version: state.version });
 }

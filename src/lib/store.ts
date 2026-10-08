@@ -54,7 +54,10 @@ class MemoryStore implements Store {
 
 // ---------- Upstash Redis ----------
 
-const KEY = { state: "npl:state", players: "npl:players", votes: "npl:votes" };
+// Local dev, preview and production share one database, so each gets its own
+// keys: testing on a laptop must never touch a live game.
+const SPACE = `npl:${process.env.VERCEL_ENV ?? "development"}`;
+const KEY = { state: `${SPACE}:state`, players: `${SPACE}:players`, votes: `${SPACE}:votes` };
 
 /** Every screen polls once a second; this keeps that to a couple of Redis reads per second. */
 const CACHE_MS = 400;
