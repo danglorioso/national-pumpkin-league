@@ -8,8 +8,10 @@ export function fail(message: string, status = 400) {
   return json({ error: message }, status);
 }
 
+/** The PIN lives only in the HOST_PIN env var; with none set, nobody is host. */
 export function isHost(req: Request): boolean {
-  return req.headers.get("x-host-pin") === (process.env.HOST_PIN ?? "1031");
+  const pin = process.env.HOST_PIN;
+  return !!pin && req.headers.get("x-host-pin") === pin;
 }
 
 /** Resolves the `x-player: id:secret` header to a joined player. */
