@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bracket } from "@/components/Bracket";
 import { type Creds, drinkName, post, useCountdown, useGame, useHydrated, useStored } from "@/lib/client";
 import { CODE_LENGTH, countdownSecs } from "@/lib/game";
-import { DRUMROLL, SWITCH_COPY, VERDICT, ounces, share } from "@/lib/copy";
+import { SWITCH_COPY, VERDICT, ounces, share } from "@/lib/copy";
 import { buzz } from "@/lib/sfx";
 import type { Cup, CurrentView, SwitchKind, View } from "@/lib/types";
 
@@ -95,7 +95,9 @@ function Shell({
 }
 
 const BIG_INPUT =
-  "rounded-2xl border-2 border-bark bg-soil px-5 py-4 text-center font-bold outline-none placeholder:text-cream/30 focus:border-pulp";
+  "rounded-2xl border-2 bg-soil px-5 py-4 text-center font-bold outline-none placeholder:text-cream/30";
+const INPUT_OK = "border-bark focus:border-pulp";
+const INPUT_BAD = "border-blood";
 const BIG_BUTTON =
   "rounded-2xl bg-pulp py-5 font-display text-2xl text-ink shadow-[0_6px_0_#a84a00] transition active:translate-y-1 active:shadow-none disabled:opacity-40";
 
@@ -110,11 +112,14 @@ function Join({ onJoined }: { onJoined: (c: Creds) => void }) {
   const [name, setName] = useState("");
   const [taken, setTaken] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A wrong code says so with a red box, not a message.
+  const [badCode, setBadCode] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function send(body: Record<string, unknown>) {
     setBusy(true);
     setError(null);
+    setBadCode(false);
     const res = await post<Creds>("/api/join", { code, ...body });
     setBusy(false);
     return res;
@@ -123,6 +128,7 @@ function Join({ onJoined }: { onJoined: (c: Creds) => void }) {
   async function checkCode(e: React.FormEvent) {
     e.preventDefault();
     const res = await send({});
+    if (res.status === 403) return setBadCode(true);
     if (res.error) return setError(res.error);
     buzz(40);
     setStep("name");
@@ -133,7 +139,7 @@ function Join({ onJoined }: { onJoined: (c: Creds) => void }) {
     if (res.status === 403) {
       setCode("");
       setStep("code");
-      return setError(res.error);
+      return setBadCode(true);
     }
     if (res.status === 409) return setTaken(true);
     if (res.error || !res.data) return setError(res.error ?? "Try again");
@@ -147,16 +153,19 @@ function Join({ onJoined }: { onJoined: (c: Creds) => void }) {
         <div className="text-center">
           <p className="animate-wobble text-8xl">🎃</p>
           <h1 className="mt-4 font-display text-4xl leading-none text-pulp">Game code</h1>
-          <p className="mt-2 text-cream/70">It&apos;s on the TV. Four digits.</p>
         </div>
         <input
           value={code}
-          onChange={(e) => setCode(digits(e.target.value))}
+          onChange={(e) => {
+            setCode(digits(e.target.value));
+            setBadCode(false);
+          }}
           inputMode="numeric"
           autoComplete="off"
           autoFocus
           placeholder="0000"
-          className={`${BIG_INPUT} font-display text-5xl tracking-[0.3em]`}
+          aria-invalid={badCode}
+          className={`${BIG_INPUT} ${badCode ? INPUT_BAD : INPUT_OK} font-display text-5xl tracking-[0.3em]`}
         />
         {error && <p className="text-center text-blood">{error}</p>}
         <button disabled={busy || code.length !== CODE_LENGTH} className={BIG_BUTTON}>
@@ -171,9 +180,6 @@ function Join({ onJoined }: { onJoined: (c: Creds) => void }) {
       <div className="my-auto flex flex-col gap-4 text-center">
         <p className="text-7xl">🤨</p>
         <h1 className="font-display text-3xl leading-tight text-rind">{name.trim()} is already signed</h1>
-        <p className="text-cream/70">
-          Lost your spot? Take it back and pick up where you left off. Otherwise choose another name.
-        </p>
         {error && <p className="text-blood">{error}</p>}
         <button disabled={busy} onClick={() => join(true)} className={BIG_BUTTON}>
           That&apos;s me
@@ -200,7 +206,6 @@ function Join({ onJoined }: { onJoined: (c: Creds) => void }) {
       <div className="text-center">
         <p className="animate-wobble text-8xl">🎃</p>
         <h1 className="mt-4 font-display text-4xl leading-none text-pulp">Draft Day</h1>
-        <p className="mt-2 text-cream/70">Sign your contract. No refunds. No designated hitters.</p>
       </div>
       <input
         value={name}
@@ -209,7 +214,7 @@ function Join({ onJoined }: { onJoined: (c: Creds) => void }) {
         autoFocus
         autoComplete="off"
         placeholder="Your name"
-        className={`${BIG_INPUT} text-2xl`}
+        className={`${BIG_INPUT} ${INPUT_OK} text-2xl`}
       />
       {error && <p className="text-center text-blood">{error}</p>}
       <button disabled={busy || !name.trim()} className={BIG_BUTTON}>
@@ -233,7 +238,7 @@ function Screen({
   const cur = view.current;
   switch (view.phase) {
     case "lobby":
-      return <Lobby me={me} count={view.players.length} />;
+      return <Lobby me={me} />;
     case "bracket":
       return cur ? <OnDeck view={view} cur={cur} me={me} /> : null;
     case "voting":
@@ -264,8 +269,7 @@ function Countdown({ kind, remaining, me }: { kind: SwitchKind; remaining: numbe
       <p key={secs} className="mt-2 animate-slam font-display text-9xl leading-none">
         {secs}
       </p>
-      <p className={`mt-4 text-cream/80 ${DRUMROLL.includes(kind) ? "animate-shake" : ""}`}>{copy.line}</p>
-      {heads && <p className="mt-3 text-lg font-bold">{heads}</p>}
+      {heads && <p className="mt-4 text-lg font-bold">{heads}</p>}
     </Card>
   );
 }
@@ -274,15 +278,12 @@ function Card({ className = "", children }: { className?: string; children: Reac
   return <section className={`rounded-3xl border-2 border-bark bg-soil p-5 ${className}`}>{children}</section>;
 }
 
-function Lobby({ me, count }: { me: Me; count: number }) {
+function Lobby({ me }: { me: Me }) {
   return (
     <>
       <Card className="text-center">
         <p className="animate-wobble text-8xl">{me.avatar}</p>
         <h1 className="mt-3 font-display text-3xl text-pulp">You&apos;re in, {me.name}</h1>
-        <p className="mt-1 text-cream/70">
-          {count} signed so far. Eyes on the TV until kickoff.
-        </p>
       </Card>
       <Card>
         <h2 className="font-display text-lg text-rind">How this works</h2>
@@ -354,11 +355,6 @@ function OnDeck({ view, cur, me }: { view: View; cur: CurrentView; me: Me }) {
               </div>
             ))}
           </div>
-        )}
-        {me.party === "taste" && (
-          <p className="mt-5 rounded-2xl bg-ink p-4 text-center text-cream/80">
-            Turn around. The Market is pouring cups <b>A</b> and <b>B</b>. No peeking at the cans.
-          </p>
         )}
       </Card>
       <Card className="p-3">
@@ -453,13 +449,6 @@ function Vote({
         })}
       </div>
       {error && <p className="text-center text-blood">{error}</p>}
-      <p className="text-center text-sm text-cream/60">
-        {choice
-          ? "Tap the other one to switch, until the host rings the bell."
-          : market
-            ? "Fewer owners = bigger share. Choose wisely."
-            : "Your pick is your vote. Majority advances."}
-      </p>
     </>
   );
 }
@@ -489,7 +478,6 @@ function Verdict({ cur, me }: { cur: CurrentView; me: Me }) {
           <>
             <p className="animate-shake text-7xl">🥁</p>
             <h1 className="mt-4 font-display text-3xl text-rind">{tie ? "Dead heat!" : "Pencils down"}</h1>
-            <p className="mt-2 text-cream/70">{tie ? "The host is breaking the tie." : "Eyes on the TV."}</p>
             {me.vote && (
               <p className="mt-4 text-lg">
                 You {me.party === "market" ? "bought" : "kept"}{" "}
@@ -557,11 +545,6 @@ function Clearing({ view, cur, me }: { view: View; cur: CurrentView; me: Me }) {
             ))}
             {pours.length === 0 && <p className="text-cream/70">Nothing. You walk away clean.</p>}
           </div>
-        </Card>
-      )}
-      {me.party === "taste" && (
-        <Card className="text-center text-cream/80">
-          Finish the cup you kept. The Market mops up the rest.
         </Card>
       )}
     </>
