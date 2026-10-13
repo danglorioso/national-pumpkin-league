@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Bracket } from "@/components/Bracket";
-import { type Creds, drinkName, post, useCountdown, useGame, useHydrated, useStored } from "@/lib/client";
+import { CoinFlip } from "@/components/CoinFlip";
+import { type Creds, drinkName, post, useCountdown, useGame, useHydrated, useSettled, useStored } from "@/lib/client";
 import { CODE_LENGTH, countdownSecs } from "@/lib/game";
-import { SWITCH_COPY, VERDICT, ounces, share } from "@/lib/copy";
+import { SWITCH_COPY, VERDICT, headerTitle, ounces, share } from "@/lib/copy";
 import { buzz } from "@/lib/sfx";
-import type { Cup, CurrentView, SwitchKind, View } from "@/lib/types";
+import type { Cup, CurrentView, View } from "@/lib/types";
 
 type Me = NonNullable<View["me"]>;
 
@@ -20,6 +21,8 @@ export default function PlayPage() {
   const [creds, setCreds] = useStored<Creds>("npl:player");
   const { view, status, refresh } = useGame("player", { creds }, hydrated);
   const remaining = useCountdown(view?.switchAt ?? 0);
+  const counting = remaining > 0 && !!view?.switchKind;
+  const shown = useSettled(view, counting);
 
   // Phones buzz whenever the host moves the game along.
   const lastPhase = useRef<string | null>(null);
@@ -52,12 +55,9 @@ export default function PlayPage() {
   }
 
   return (
-    <Shell title={view.title} me={view.me} offline={status === "offline"}>
-      {remaining > 0 && view.switchKind ? (
-        <Countdown key={view.switchAt} kind={view.switchKind} remaining={remaining} me={view.me} />
-      ) : (
-        <Screen view={view} me={view.me} creds={creds} refresh={refresh} />
-      )}
+    <Shell title={headerTitle(view.title, (shown ?? view).phase)} me={view.me} offline={status === "offline"}>
+      {shown?.me && <Screen view={shown} me={shown.me} creds={creds} refresh={refresh} />}
+      {counting && <Countdown key={view.switchAt} view={view} remaining={remaining} me={view.me} />}
     </Shell>
   );
 }
@@ -252,10 +252,13 @@ function Screen({
   }
 }
 
-function Countdown({ kind, remaining, me }: { kind: SwitchKind; remaining: number; me: Me }) {
-  const copy = SWITCH_COPY[kind];
+/** Sits on top of whatever screen was up when the host tapped, and blocks taps on it. */
+function Countdown({ view, remaining, me }: { view: View; remaining: number; me: Me }) {
+  const kind = view.switchKind ?? "next";
   const secs = countdownSecs(remaining);
   useEffect(() => buzz(25), [secs]);
+  // A coin-flip tiebreak shows the coin itself instead of 3-2-1.
+  const coin = kind === "tiebreak" && view.current?.decidedBy === "coin" ? view.current.winnerCup : null;
   const heads =
     kind === "open" && me.party === "market"
       ? "👀 You're Market. Get ready to buy."
@@ -264,13 +267,17 @@ function Countdown({ kind, remaining, me }: { kind: SwitchKind; remaining: numbe
         : null;
 
   return (
-    <Card className="my-auto text-center">
-      <p className="font-display text-2xl text-rind">{copy.title}</p>
-      <p key={secs} className="mt-2 animate-slam font-display text-9xl leading-none">
-        {secs}
-      </p>
-      {heads && <p className="mt-4 text-lg font-bold">{heads}</p>}
-    </Card>
+    <div className="fixed inset-0 z-20 flex animate-fade flex-col items-center justify-center gap-4 bg-ink/70 px-6 text-center backdrop-blur-sm">
+      <p className="font-display text-3xl text-rind">{coin ? "Coin flip" : SWITCH_COPY[kind].title}</p>
+      {coin ? (
+        <CoinFlip cup={coin} remaining={remaining} className="my-6 size-56 text-[9rem]" />
+      ) : (
+        <p key={secs} className="animate-slam font-display text-[11rem] leading-none text-pulp">
+          {secs}
+        </p>
+      )}
+      {heads && <p className="text-lg font-bold">{heads}</p>}
+    </div>
   );
 }
 

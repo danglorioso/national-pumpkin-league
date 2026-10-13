@@ -1,4 +1,4 @@
-import type { SwitchKind, VerdictKind } from "./types";
+import type { Phase, SwitchKind, VerdictKind } from "./types";
 
 /** What every screen says while counting down into the next phase. */
 export const SWITCH_COPY: Record<SwitchKind, { title: string; line: string }> = {
@@ -57,6 +57,20 @@ export const VERDICT: Record<VerdictKind, { title: string; line: string; tone: "
     tone: "meh",
   },
 };
+
+/**
+ * Header title: the league's initials while a matchup is on screen (those
+ * screens are already full of text), the full name in the lobby and at the end.
+ */
+export function headerTitle(title: string, phase: Phase): string {
+  if (phase === "lobby" || phase === "champion") return title;
+  const initials = title
+    .split(/\s+/)
+    .map((word) => word.match(/[A-Za-z0-9]/)?.[0] ?? "")
+    .join("")
+    .toUpperCase();
+  return initials.length > 1 ? initials : title;
+}
 
 export function share(owners: number): string {
   if (owners === 1) return "ALL OF IT";

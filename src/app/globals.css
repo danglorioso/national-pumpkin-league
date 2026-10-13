@@ -19,7 +19,11 @@
   --animate-marquee: marquee 60s linear infinite;
   --animate-flipin: flipin 0.8s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
   --animate-slam: slam 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+  --animate-fade: fade 0.25s ease-out both;
   --animate-coin: coin 0.9s linear infinite;
+  /* Durations here are placeholders: CoinFlip sets them to the countdown length. */
+  --animate-coin-spin: coin-spin 4s cubic-bezier(0.25, 0.6, 0.3, 1) both;
+  --animate-coin-toss: coin-toss 4s ease-in-out both;
 
   @keyframes pop {
     0% { transform: scale(0.3) rotate(-10deg); opacity: 0; }
@@ -53,6 +57,21 @@
   @keyframes slam {
     0% { transform: scale(3); opacity: 0; }
     100% { transform: scale(1); opacity: 1; }
+  }
+  @keyframes fade {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
+  @keyframes coin-spin {
+    0% { transform: rotateX(0deg); }
+    82%, 100% { transform: rotateX(var(--coin-end, 1800deg)); }
+  }
+  @keyframes coin-toss {
+    0% { transform: translateY(0) scale(0.85); }
+    38% { transform: translateY(-22%) scale(1.25); }
+    78% { transform: translateY(0) scale(1); }
+    84% { transform: translateY(-4%) scale(1.03); }
+    90%, 100% { transform: translateY(0) scale(1); }
   }
   @keyframes coin {
     0% { transform: rotateY(0); }

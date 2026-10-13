@@ -4,12 +4,13 @@ import confetti from "canvas-confetti";
 import QRCode from "qrcode";
 import { useEffect, useRef, useState } from "react";
 import { Bracket } from "@/components/Bracket";
+import { COIN_LANDS, CoinFlip } from "@/components/CoinFlip";
 import { PinGate } from "@/components/PinGate";
-import { drinkName, playerOf, useCountdown, useGame, useHydrated, useStored } from "@/lib/client";
-import { DRUMROLL, SWITCH_COPY, VERDICT, ounces, share } from "@/lib/copy";
-import { countdownSecs, tally } from "@/lib/game";
-import { enableSound, sfx } from "@/lib/sfx";
-import type { Cup, CurrentView, Stat, SwitchKind, VerdictKind, View } from "@/lib/types";
+import { drinkName, playerOf, useCountdown, useGame, useHydrated, useSettled, useStored } from "@/lib/client";
+import { DRUMROLL, SWITCH_COPY, VERDICT, headerTitle, ounces, share } from "@/lib/copy";
+import { SWITCH_MS, countdownSecs, tally } from "@/lib/game";
+import { enableSound, music, sfx } from "@/lib/sfx";
+import type { Cup, CurrentView, Stat, VerdictKind, View } from "@/lib/types";
 
 const CUPS: Cup[] = ["A", "B"];
 
@@ -17,15 +18,6 @@ const CUP = {
   A: { fill: "bg-pulp text-ink", text: "text-pulp", border: "border-pulp", hex: "#ff7a18" },
   B: { fill: "bg-hex text-ink", text: "text-hex", border: "border-hex", hex: "#a970ff" },
 } as const;
-
-const PHASE_LABEL: Record<View["phase"], string> = {
-  lobby: "Draft Day",
-  bracket: "On Deck",
-  voting: "Market Open",
-  taste: "Taste Verdict",
-  clearing: "Market Cleared",
-  champion: "Champion",
-};
 
 const VERDICT_ICON: Partial<Record<VerdictKind, string>> = {
   genius: "🧠",
@@ -43,6 +35,16 @@ export default function TvPage() {
   const { view, status } = useGame("tv", { pin }, hydrated && !!pin);
   const [sound, setSound] = useState(false);
   const remaining = useCountdown(view?.switchAt ?? 0);
+  const counting = remaining > 0 && !!view?.switchKind;
+  const shown = useSettled(view, counting);
+
+  // Background music: in the lobby until kickoff, then only while votes can be cast.
+  const musicOn = view?.phase === "lobby" || (view?.phase === "voting" && !counting);
+  useEffect(() => {
+    if (!musicOn) return;
+    music.start();
+    return () => music.stop();
+  }, [musicOn]);
 
   if (!hydrated) return null;
   // The TV shows the game code, so only the host can put it up.
@@ -57,35 +59,29 @@ export default function TvPage() {
     );
   }
 
-  const cur = view.current;
+  // The header follows the screen underneath, not the phase being counted in.
+  const top = shown ?? view;
+  const cur = top.current;
   return (
     <main className="flex h-dvh w-screen flex-col overflow-hidden">
       <header className="flex shrink-0 items-center justify-between gap-[2vw] px-[2.5vw] py-[1.2vh]">
-        <span className="flex items-center gap-[1.5vw] font-display text-[1.8vw] text-rind">
-          🎃 {view.title}
-          {view.phase !== "lobby" && (
-            <span className="rounded-full border-[0.15vw] border-bark px-[1vw] py-[0.2vw] text-[1.1vw] tracking-widest text-cream/70">
-              Code {view.code}
-            </span>
-          )}
-        </span>
+        <span className="font-display text-[1.8vw] text-rind">🎃 {headerTitle(top.title, top.phase)}</span>
         {cur && (
           <span className="text-[1.3vw] font-semibold uppercase tracking-[0.2em] text-cream/60">
             Match {cur.number} of {cur.total} · {cur.roundName}
           </span>
         )}
-        <span className="flex items-center gap-[0.8vw] font-display text-[1.3vw]">
-          <span className="size-[0.9vw] animate-pulse rounded-full bg-blood" />
-          {PHASE_LABEL[view.phase]}
+        <span className="flex items-center gap-[0.8vw] font-display text-[1.3vw] text-cream/70">
+          Join code
+          <span className="rounded-[0.6vw] bg-cream px-[0.8vw] py-[0.1vw] text-[1.8vw] tracking-[0.15em] text-ink">
+            {view.code}
+          </span>
         </span>
       </header>
 
-      <section className="min-h-0 flex-1 px-[2.5vw] pb-[2.5vh]">
-        {remaining > 0 && view.switchKind ? (
-          <Countdown key={view.switchAt} kind={view.switchKind} remaining={remaining} />
-        ) : (
-          <Stage view={view} />
-        )}
+      <section className="relative min-h-0 flex-1 px-[2.5vw] pb-[2.5vh]">
+        {shown && <Stage view={shown} />}
+        {counting && <Countdown key={view.switchAt} view={view} remaining={remaining} />}
       </section>
 
       {!sound && (
@@ -122,28 +118,39 @@ function Stage({ view }: { view: View }) {
   }
 }
 
-function Countdown({ kind, remaining }: { kind: SwitchKind; remaining: number }) {
+/** Sits on top of whatever screen was up when the host tapped. */
+function Countdown({ view, remaining }: { view: View; remaining: number }) {
+  const kind = view.switchKind ?? "next";
   const copy = SWITCH_COPY[kind];
   const secs = countdownSecs(remaining);
-  const drum = DRUMROLL.includes(kind);
+  // A coin-flip tiebreak shows the coin itself instead of 3-2-1.
+  const coin = kind === "tiebreak" && view.current?.decidedBy === "coin" ? view.current.winnerCup : null;
+  const drum = DRUMROLL.includes(kind) && !coin;
   const [length] = useState(remaining);
   useEffect(() => {
-    if (drum) sfx.drumroll(length / 1000);
-  }, [drum, length]);
+    if (coin) sfx.coinFlip(Math.max(0.2, (length - SWITCH_MS * (1 - COIN_LANDS)) / 1000));
+    else if (drum) sfx.drumroll(length / 1000);
+  }, [coin, drum, length]);
   useEffect(() => {
-    if (!drum) sfx.tick();
-  }, [drum, secs]);
+    if (!drum && !coin) sfx.tick();
+  }, [drum, coin, secs]);
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-[2vh] text-center">
-      <p className="font-display text-[4.5vw] leading-none text-rind">{copy.title}</p>
-      <p key={secs} className={`animate-slam font-display text-[22vw] leading-none ${drum ? "text-cream" : "text-pulp"}`}>
-        {secs}
-      </p>
-      <p className={`text-[2.2vw] font-semibold text-cream/80 ${drum ? "animate-shake" : ""}`}>
-        {drum && "🥁 "}
-        {copy.line}
-      </p>
+    <div className="absolute inset-0 z-10 flex animate-fade flex-col items-center justify-center gap-[2vh] bg-ink/70 text-center backdrop-blur-[0.3vw]">
+      <p className="font-display text-[4.5vw] leading-none text-rind">{coin ? "Coin flip" : copy.title}</p>
+      {coin ? (
+        <CoinFlip cup={coin} remaining={remaining} className="my-[4vh] size-[26vw] text-[17vw]" />
+      ) : (
+        <p key={secs} className={`animate-slam font-display text-[22vw] leading-none ${drum ? "text-cream" : "text-pulp"}`}>
+          {secs}
+        </p>
+      )}
+      {!coin && (
+        <p className={`text-[2.2vw] font-semibold text-cream/80 ${drum ? "animate-shake" : ""}`}>
+          {drum && "🥁 "}
+          {copy.line}
+        </p>
+      )}
     </div>
   );
 }

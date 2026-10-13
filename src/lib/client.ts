@@ -45,6 +45,18 @@ export function useCountdown(at: number): number {
 /** Newest game version this screen has seen; the server never answers with older. */
 let seenVersion = 0;
 
+/**
+ * What a screen should draw. The game state changes the instant the host taps,
+ * but screens keep showing the last settled view (with the countdown on top)
+ * until the clock hits zero, so the next phase can't leak early. Null while
+ * counting down with nothing settled yet, e.g. a page opened mid-countdown.
+ */
+export function useSettled(view: View | null, counting: boolean): View | null {
+  const [settled, setSettled] = useState<View | null>(null);
+  if (view && !counting && settled !== view) setSettled(view);
+  return counting ? settled : view;
+}
+
 export type Creds = { id: string; secret: string };
 
 type Auth = { creds?: Creds | null; pin?: string | null };
